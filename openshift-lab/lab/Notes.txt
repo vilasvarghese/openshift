@@ -1,0 +1,139 @@
+oc explain pod
+
+# Get details on the pod's spec
+oc explain pod.spec
+
+# Get details on the pod's containers
+oc explain pod.spec.containers
+
+# Check that OpenShift is running 
+# You can use minishift start if the cluster has stopped
+oc status
+
+# Create a Pod on OpenShift based on a file
+oc create -f pods/pod.yaml
+	#works 
+
+oc run tom --image=tomcat:9.0 --port=8080 
+	works fine
+	
+or 
+oc run vilaspod --image=nginx
+	#error permission denied 
+			Reason below 
+
+
+
+# Show all currently running Pods
+oc get pods
+
+
+$ oc version
+ 
+# Version 3 will have a line like this
+oc v3.11.0+0cbc58b
+ 
+# Version 4 will have a line like this
+Client Version: 4.6.1
+
+
+Here's the difference in the command between versions
+
+
+Following creates  a deployment config 
+	deploy + hpa?
+# Version 3 to 4.4
+$ oc new-app quay.io/practicalopenshift/hello-world
+ 
+# Version 4.5+
+$ oc new-app quay.io/practicalopenshift/hello-world --as-deployment-config 
+
+	oc status 
+
+
+https://www.densify.com/openshift-tutorial/
+
+
+
+#################
+Why nginx doesn't run in oc
+
+oc logs nginx 
+
+/docker-entrypoint.sh: Configuration complete; ready for start up
+2024/08/29 03:17:02 [warn] 1#1: the "user" directive makes sense only if the master process runs with super-user privileges, ignored in /etc/nginx/nginx.conf:2
+nginx: [warn] the "user" directive makes sense only if the master process runs with super-user privileges, ignored in /etc/nginx/nginx.conf:2
+2024/08/29 03:17:02 [emerg] 1#1: mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)
+nginx: [emerg] mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)
+
+
+1. Nginx Configuration Warning:
+
+The warning [warn] 1#1: the "user" directive makes sense only if the master process runs with super-user privileges, ignored in /etc/nginx/nginx.conf:2 suggests you have a "user" directive in your Nginx configuration file (/etc/nginx/nginx.conf).   
+OpenShift doesn't allow containers to run as root (super-user). This warning highlights that the "user" directive will be ignored.
+2. Permission Denied Error:
+
+The critical error is [emerg] 1#1: mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied). This means Nginx cannot create the /var/cache/nginx/client_temp directory due to insufficient permissions.
+Solutions:
+
+1. Fix Nginx Configuration:
+
+There are two ways to address the Nginx configuration issue:
+
+Remove the "user" directive: If you don't need to run Nginx as a specific user, simply remove the "user" directive from your nginx.conf file.
+
+Run Nginx with anyuid SCC: If you need to run Nginx with a specific user, you need to configure an Security Context Constraint (SCC) in OpenShift that allows the container to run with a non-root user. This requires a bit more configuration:
+
+a. Create an SCC named "nginx-scc" that allows anyuid:
+
+YAML
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: nginx-scc
+allowPrivileged: false
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+users: []
+groups: []
+Use code with caution.
+
+b. Apply the SCC to your pod definition:
+
+Deployment: Add the following section to your deployment YAML:
+
+YAML
+spec:
+  securityContext:
+    sccConstraints:
+      - rule: "nginx"
+Use code with caution.
+
+oc run command: Use the --security-context parameter with the nginx-scc name:
+
+Bash
+oc run vilaspod --image=nginx --security-context=nginx-scc
+Use code with caution.
+
+2. Address Permission Denied Error:
+
+This error implies the Nginx user inside the container doesn't have permission to create the /var/cache/nginx/client_temp directory. This is a common security practice in OpenShift to restrict access for pods.
+
+There are two approaches:
+
+Use a pre-existing directory: You can modify your Nginx configuration to use a pre-existing directory with the required permissions. For example, instead of /var/cache/nginx/client_temp, you could use /tmp/nginx-cache. Make sure the directory already exists and has the appropriate permissions for the Nginx user to write to it.
+
+Create the directory in the Dockerfile: Modify your Dockerfile (if you're using one) to create the directory before starting Nginx.  Here's an example:
+
+Dockerfile
+RUN mkdir -p /var/cache/nginx/client_temp
+CMD ["nginx", "-g", "daemon off;"]
+Use code with caution.
+
+
+----------------
+https://www.redhat.com/sysadmin/deploy-web-service-openshift
